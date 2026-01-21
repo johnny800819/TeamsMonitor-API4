@@ -45,9 +45,23 @@ public class TeamsNotifier
 
         try
         {
+            _logger.LogInformation("發送 Teams 通知到頻道 '{ChannelName}'，Title: {Title}", channelName, title);
             var response = await httpClient.PostAsync(webhookUrl, content);
-            // 如果 Teams 回應非 2xx 狀態碼，這會拋出例外，讓 Controller 捕捉
-            response.EnsureSuccessStatusCode();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var responseBody = await response.Content.ReadAsStringAsync();
+                _logger.LogError(
+                    "Teams Webhook 回應失敗。狀態碼: {StatusCode}, 原因: {ReasonPhrase}, 回應內容: {ResponseBody}, 發送的 Payload: {Payload}",
+                    response.StatusCode,
+                    response.ReasonPhrase,
+                    responseBody,
+                    jsonPayload
+                );
+                throw new HttpRequestException($"Teams Webhook returned {response.StatusCode}: {responseBody}");
+            }
+            
+            _logger.LogInformation("Teams 通知發送成功到頻道 '{ChannelName}'", channelName);
         }
         catch (Exception ex)
         {
@@ -56,4 +70,3 @@ public class TeamsNotifier
         }
     }
 }
-
