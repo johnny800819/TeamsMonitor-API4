@@ -54,7 +54,7 @@ public class WebsiteMonitorService : BackgroundService
                 var policies = _configuration.GetSection("Teams:MonitoringPolicies").Get<List<MonitoringPolicy>>() ?? new List<MonitoringPolicy>();
                 if (!policies.Any())
                 {
-                    _logger.LogWarning("[{InstanceId}] 未設定任何監控策略 (MonitoringPolicies)！服務將暫停24小時。", _instanceId);
+                    _logger.LogWarning("[監控-{InstanceId}] 未設定任何監控策略 (MonitoringPolicies)！服務將暫停24小時。", _instanceId.ToString().Substring(0, 8));
                     await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
                     continue;
                 }
@@ -92,8 +92,9 @@ public class WebsiteMonitorService : BackgroundService
                 // 3. 如果有需要監控的網站，執行並行檢查
                 if (allUrlsToCheck.Any())
                 {
-                    _logger.LogInformation("[{InstanceId}] 本輪觸發 {PolicyCount} 個策略，共需檢查 {UrlCount} 個獨立網站。", 
-                        _instanceId, policiesToRun.Count, allUrlsToCheck.Count);
+                    _logger.LogInformation("========== [監控-{InstanceId}] [{Time}] 開始本輪監控 ==========", _instanceId.ToString().Substring(0, 8), tickTime.ToString("HH:mm:ss"));
+                    _logger.LogInformation("[監控-{InstanceId}] 本輪觸發 {PolicyCount} 個策略，共需檢查 {UrlCount} 個獨立網站。", 
+                        _instanceId.ToString().Substring(0, 8), policiesToRun.Count, allUrlsToCheck.Count);
 
                     // 呼叫並行檢查方法，同時對所有不重複的 URL 進行 HTTP 請求
                     // 這能確保即使有多個策略包含同一個網站，我們也只會檢查一次，節省資源
@@ -105,10 +106,12 @@ public class WebsiteMonitorService : BackgroundService
                         // 將檢查結果依照策略進行分組與過濾，並發送聚合後的通知
                         await ProcessPolicyNotificationAsync(policy, checkResults);
                     }
+                    
+                    _logger.LogInformation("========== [監控-{InstanceId}] 本輪監控完成 ==========\n\n", _instanceId.ToString().Substring(0, 8));
                 }
                 else
                 {
-                    _logger.LogDebug("[{InstanceId}] 本輪無策略觸發或無網站需檢查。", _instanceId);
+                    _logger.LogDebug("[監控-{InstanceId}] 本輪無策略觸發或無網站需檢查。", _instanceId.ToString().Substring(0, 8));
                 }
             }
             catch (TaskCanceledException)
@@ -118,7 +121,7 @@ public class WebsiteMonitorService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[{InstanceId}] 監控服務發生未預期錯誤", _instanceId);
+                _logger.LogError(ex, "[監控-{InstanceId}] 發生未預期錯誤", _instanceId.ToString().Substring(0, 8));
                 // 發生未知錯誤時，稍微等待一下避免CPU空轉
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
@@ -239,7 +242,7 @@ public class WebsiteMonitorService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[{InstanceId}] 處理策略 '{PolicyName}' 通知時發生錯誤", _instanceId, policy.PolicyName);
+            _logger.LogError(ex, "[監控-{InstanceId}] 處理策略 '{PolicyName}' 通知時發生錯誤", _instanceId.ToString().Substring(0, 8), policy.PolicyName);
         }
     }
 
@@ -254,14 +257,14 @@ public class WebsiteMonitorService : BackgroundService
     // CheckWebsitesInParallelAsync 改為回傳結果字典
     private async Task<Dictionary<string, WebsiteCheckResult>> CheckWebsitesInParallelAsync(IEnumerable<string> urls)
     {
-        _logger.LogInformation("[{InstanceId}] 啟動並行網站健康檢查...", _instanceId);
+        _logger.LogInformation("[監控-{InstanceId}] 啟動並行網站健康檢查...", _instanceId.ToString().Substring(0, 8));
         
         var tasks = urls.Select(url => CheckWebsiteAsync(url));
         var results = await Task.WhenAll(tasks); // 所有 TASK 會同時發送，不會互相等待。
 
         var resultMap = results.ToDictionary(r => r.Url, r => r);
 
-        _logger.LogInformation("[{InstanceId}] 並行網站健康檢查完成。 \n\n\n", _instanceId);
+        _logger.LogInformation("[監控-{InstanceId}] 並行網站健康檢查完成", _instanceId.ToString().Substring(0, 8));
         return resultMap;
     }
 
@@ -288,7 +291,7 @@ public class WebsiteMonitorService : BackgroundService
 
                 if (isHealthy)
                 {
-                    _logger.LogInformation("[{InstanceId}] 網站 '{Url}' 正常運行，回應碼：{StatusCode}", _instanceId, url, response.StatusCode);
+                    _logger.LogInformation("  ✓ 網站 '{Url}' 正常運行 (回應碼: {StatusCode})", url, response.StatusCode);
                     return new WebsiteCheckResult 
                     { 
                         Url = url, 
@@ -298,7 +301,7 @@ public class WebsiteMonitorService : BackgroundService
                 }
                 else
                 {
-                    _logger.LogWarning("[{InstanceId}] 網站 '{Url}' 回應碼 {StatusCode}，第 {Attempt} 次嘗試", _instanceId, url, response.StatusCode, i + 1);
+                    _logger.LogWarning("  ⚠ 網站 '{Url}' 回應碼 {StatusCode}，第 {Attempt} 次嘗試", url, response.StatusCode, i + 1);
                     if (i == finalRetry)
                     {
                         return new WebsiteCheckResult 
@@ -317,7 +320,7 @@ public class WebsiteMonitorService : BackgroundService
             }
             catch (Exception ex) when (i == finalRetry)
             {
-                _logger.LogError("[{InstanceId}] 無法連接網站 '{Url}'，錯誤：{ErrorMessage}", _instanceId, url, ex.Message);
+                _logger.LogError("  ✗ 無法連接網站 '{Url}'，錯誤：{ErrorMessage}", url, ex.Message);
                 return new WebsiteCheckResult 
                 { 
                     Url = url, 
