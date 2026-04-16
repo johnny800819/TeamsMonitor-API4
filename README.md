@@ -14,6 +14,10 @@
 3.  **背景自動執行服務 (Background Service) - 活性維護 (HeartBeat)**: 
     - 專門用於維持 Teams Flow 活性，克服 90 天無活動即停用的限制。
     - 每 80 天自動發送一次 Teams 訊息與 Email 報告。
+    - **指定時間發送**：透過 `PreferredTime` 設定精確的發送時間點（如每天 09:00）。
+    - **狀態持久化**：系統會將上次執行日期記錄於 `Logs/TeamsKeepAlive_LastRunDate.txt`，伺服器重啟後自動恢復排程，不會重新計算 80 天。
+    - **過期補發機制**：若伺服器長期關機導致錯過預定時間，重啟後會立即補發心跳。
+    - **SafeDelayAsync 防崩潰**：將超長等待時間分段執行，避免 .NET `Task.Delay` 超過 24.8 天上限導致 `ArgumentOutOfRangeException` 崩潰。
     - **雙重報警**：即使 Teams Webhook 失敗，也會透過 Email 告知管理員執行結果。
 4.  **API Key 驗證**: 所有 API 請求皆需透過 `X-API-Key` Header 進行驗證。
 
@@ -59,7 +63,33 @@
 }
 ```
 
-### 3. 監控策略設定
+### 3. 活性維護設定 (KeepAlive)
+在 `Teams:KeepAlive` 中設定心跳排程。
+
+**屬性說明**：
+- `Enabled`: 是否啟用自動打卡功能。
+- `TestMode`: 測試模式開關。開啟後，間隔單位從「天」變成「分鐘」，方便驗證。
+- `IntervalDays`: 發送週期（天數）。建議 80 天，微軟限制為 90 天。
+- `TestIntervalMinutes`: 測試模式下的發送頻率（分鐘）。
+- `PreferredTime`: 指定發送的時間點（24 小時制，格式 `HH:mm`）。
+- `TargetChannel`: 發送目標頻道（需對應 `WebhookUrls` 中的 Key）。
+- `LastRunDateFileName`: 紀錄上次執行時間的檔案名稱（存於 `Logs` 目錄）。
+
+```json
+"KeepAlive": {
+  "Enabled": true,
+  "TestMode": false,
+  "IntervalDays": 80,
+  "TestIntervalMinutes": 1,
+  "PreferredTime": "09:00",
+  "TargetChannel": "資訊室通知頻道",
+  "LastRunDateFileName": "TeamsKeepAlive_LastRunDate.txt"
+}
+```
+
+> **注意**：首次啟動時，若 `Logs/TeamsKeepAlive_LastRunDate.txt` 不存在，系統會以「啟動當天」為基準日開始計算。若想讓服務一上線就立即發送一次心跳，可手動建立該檔案並將內容設為一個過去的日期（如 `2024-01-01 00:00:00`）。
+
+### 4. 監控策略設定
 在 `Teams:MonitoringPolicies` 中定義監控規則。
 
 **策略屬性說明**：
@@ -136,3 +166,6 @@ Invoke-RestMethod -Uri $uri -Method Post -Headers @{ "X-API-Key" = $apiKey } -Bo
 
 - 若需發送中文內容，請確保 PowerShell 腳本編碼正確，並建議將 JSON Body 轉為 UTF-8 Bytes 發送。
 - `WebsiteMonitorService` 會在應用程式啟動時自動執行。
+- `TeamsFlowKeepAliveService` 啟動後會先讀取持久化檔案計算下一次排程，不會立即發送。
+- 請確保伺服器上的應用程式對 `Logs` 資料夾擁有**讀寫權限**，否則持久化記錄會失敗。
+- 伺服器的系統時鐘需保持準確（建議使用網域校時），以確保 `PreferredTime` 設定正確觸發。
