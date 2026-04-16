@@ -11,7 +11,11 @@
     - **聚合通知模式**：每個策略的所有網站檢查結果會彙整為**單一則** HTML 格式的 Teams 通知。
     - 支援條件式通知：可設定僅在網站異常時發送通知，或包含所有檢查結果。
     - 網站異常或恢復正常時，自動發送 HTML 表格通知。
-3.  **API Key 驗證**: 所有 API 請求皆需透過 `X-API-Key` Header 進行驗證。
+3.  **背景自動執行服務 (Background Service) - 活性維護 (HeartBeat)**: 
+    - 專門用於維持 Teams Flow 活性，克服 90 天無活動即停用的限制。
+    - 每 80 天自動發送一次 Teams 訊息與 Email 報告。
+    - **雙重報警**：即使 Teams Webhook 失敗，也會透過 Email 告知管理員執行結果。
+4.  **API Key 驗證**: 所有 API 請求皆需透過 `X-API-Key` Header 進行驗證。
 
 ## 定時執行機制 (Scheduled Execution)
 
@@ -106,15 +110,23 @@
     dotnet run
     ```
 
-## API 使用範例 (PowerShell)
+## API 使用範例
+### 1. 快速測試 Teams (GET)
+直接以瀏覽器造訪以下網址，即可發送一則發送到「資訊室通知頻道」的測試訊息：
+`http://localhost:5127/api/v1/notifications/teams`
 
+### 2. 手動執行活性維護心跳 (POST)
+立即觸發完整的【背景服務(HeartBeat)】流程（Teams + Email）：
+`POST http://localhost:5127/api/v1/notifications/teams/keepalive/trigger`
+
+### 3. 發送自訂訊息 (PowerShell)
 ```powershell
 $uri = "http://localhost:5127/api/v1/notifications/teams"
 $apiKey = "your-secret-key"
 $body = @{
     title = "測試通知"
     message = "這是一則測試訊息"
-    targetChannel = "default"
+    targetChannel = "資訊室通知頻道"
 } | ConvertTo-Json
 
 Invoke-RestMethod -Uri $uri -Method Post -Headers @{ "X-API-Key" = $apiKey } -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType "application/json"

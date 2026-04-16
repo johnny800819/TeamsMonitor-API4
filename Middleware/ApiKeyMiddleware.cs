@@ -1,4 +1,4 @@
-﻿namespace API4_TEAMS.Middleware
+namespace API4_TEAMS.Middleware
 {
     public class ApiKeyMiddleware
     {

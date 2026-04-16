@@ -1,4 +1,4 @@
-﻿using Serilog;
+using Serilog;
 using API4_TEAMS.Middleware;
 using Microsoft.OpenApi.Models;
 
@@ -39,15 +39,26 @@ builder.Services.AddSwaggerGen(c =>
             new List<string>()
         }
     });
+
+    // 載入 XML 註解文件
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
 });
 
 builder.Services.AddHttpClient(); // 註冊 IHttpClientFactory，這是建立 HttpClient 的最佳實踐，可避免 Socket 耗盡問題
-builder.Services.AddSingleton<TeamsNotifier>(); // 將 TeamsNotifier 註冊為 Singleton 服務，因為它被 Singleton 的 HostedService 使用，必須有相同或更長的生命週期
+builder.Services.AddSingleton<TeamsNotifier>(); // 將 TeamsNotifier 註冊為 Singleton 服務
+builder.Services.AddSingleton<MailService>(); // 註冊 MailService
+builder.Services.AddSingleton<TeamsKeepAliveManager>(); // 註冊活性維護管理器
 
-// 註冊 WebsiteMonitorService 為背景服務 (Hosted Service)。
-// ASP.NET Core 會在應用程式啟動時自動建立並執行所有註冊的 IHostedService/BackgroundService，
-// 不需手動呼叫，服務會在應用程式存活期間持續運作。
+// 註冊背景自動執行服務 (Background Service)：用於定期巡檢網站狀態 (每分鐘自動執行)
 builder.Services.AddHostedService<WebsiteMonitorService>();
+
+// 註冊背景自動執行服務 (Background Service)：用於 Teams Flow 活性維護 (HeartBeat，每 80 天自動打卡)
+builder.Services.AddHostedService<TeamsFlowKeepAliveService>();
 
 // 設定 Serilog - 排除 Microsoft 日誌
 Log.Logger = new LoggerConfiguration()

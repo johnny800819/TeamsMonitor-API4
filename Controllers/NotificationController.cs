@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using API4_TEAMS.Models;
 
 [ApiController]
@@ -6,16 +6,63 @@ using API4_TEAMS.Models;
 public class NotificationController : ControllerBase
 {
     private readonly TeamsNotifier _teamsNotifier;
+    private readonly TeamsKeepAliveManager _keepAliveManager;
     private readonly ILogger<NotificationController> _logger;
 
-    public NotificationController(TeamsNotifier teamsNotifier, ILogger<NotificationController> logger)
+    public NotificationController(TeamsNotifier teamsNotifier, TeamsKeepAliveManager keepAliveManager, ILogger<NotificationController> logger)
     {
         _teamsNotifier = teamsNotifier;
+        _keepAliveManager = keepAliveManager;
         _logger = logger;
     }
 
     /// <summary>
-    /// 發送一則訊息到指定的 Microsoft Teams 頻道。
+    /// [手動執行] 立即觸發一次完整的活性維護心跳流程。
+    /// </summary>
+    /// <remarks>
+    /// 此 API 會執行【背景服務(HeartBeat)】的核心邏輯：
+    /// 1. 發送訊息到 Teams 的「資訊室通知頻道」。
+    /// 2. 發送 Email 狀態報告給管理員 (含 Teams 執行結果)。
+    /// 這是為了確認整個自動維護鍊路 (Teams + Email) 是否運作正常。
+    /// </remarks>
+    /// <returns>執行結果報告</returns>
+    [HttpPost("keepalive/trigger")]
+    public async Task<IActionResult> TriggerKeepAlive()
+    {
+        try
+        {
+            var result = await _keepAliveManager.RunKeepAliveWorkAsync(isManualTrigger: true);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "手動觸發活性維護任務時發生錯誤。");
+            return StatusCode(500, new { message = "Failed to trigger keep-alive task.", error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// [快速測試] 僅測試 Teams 通道連通性。
+    /// </summary>
+    /// <remarks>
+    /// 單純發送一則訊息到「資訊室通知頻道」。
+    /// 此 API 【不會】發送 Email 報告，純粹用於驗證 Teams Webhook URL 是否有效。
+    /// </remarks>
+    /// <returns>發送結果</returns>
+    [HttpGet("teams")]
+    public async Task<IActionResult> TestTeamsMessage()
+    {
+        var request = new SendTeamsNotificationRequest
+        {
+            Title = "API 一鍵測試通知",
+            Message = "這是一則來自 API GET 端點的測試訊息，證明連線正常。",
+            TargetChannel = "資訊室通知頻道"
+        };
+        return await SendTeamsMessage(request);
+    }
+
+    /// <summary>
+    /// 發送自訂訊息到指定的 Microsoft Teams 頻道。
     /// </summary>
     /// <remarks>
     /// 此 API 受 API 金鑰保護，請在 HTTP Header 中提供 X-API-Key。
@@ -28,8 +75,8 @@ public class NotificationController : ControllerBase
         // [ApiController] 屬性會自動驗證 request model，若不符規則會回傳 400 Bad Request
         try
         {
-            // 如果呼叫端未指定頻道，我們的業務邏輯是使用 "default"
-            string channel = request.TargetChannel ?? "default";
+            // 如果呼叫端未指定頻道，預設使用「資訊室通知頻道」
+            string channel = request.TargetChannel ?? "資訊室通知頻道";
 
             // 取得呼叫者名稱 (由 ApiKeyMiddleware 注入)
             var clientName = HttpContext.Items["ClientName"] as string ?? "Unknown";
